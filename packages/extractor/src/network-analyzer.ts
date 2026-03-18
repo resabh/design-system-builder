@@ -12,58 +12,118 @@ export class NetworkAnalyzer {
     designTokens: []
   };
 
+  private pendingResponses: Set<Promise<void>> = new Set();
+  private maxWaitTime: number = 5000; // Maximum time to wait for resources (configurable)
+  private isCapturing: boolean = false;
+
   /**
-   * Capture network resources from the page
+   * Start capturing network resources from the page
+   * This sets up listeners but doesn't wait - call finishCapture() after page load
+   *
+   * @param page Playwright page to capture resources from
    */
-  async captureResources(page: Page): Promise<NetworkResources> {
+  async captureResources(page: Page): Promise<void> {
     // Reset resources
     this.resources = {
       css: [],
       fonts: [],
       designTokens: []
     };
+    this.pendingResponses.clear();
+    this.isCapturing = true;
 
-    // Set up response listener
-    page.on('response', async (response) => {
-      try {
-        const url = response.url();
-        const contentType = response.headers()['content-type'] || '';
+    // Set up response listener with proper async tracking
+    page.on('response', (response) => {
+      if (!this.isCapturing) return; // Ignore responses if not actively capturing
 
-        // Capture CSS files
-        if (url.endsWith('.css') || contentType.includes('text/css')) {
-          try {
-            const content = await response.text();
-            this.resources.css.push({ url, content });
-          } catch (error) {
-            // Skip if we can't read the response
-          }
-        }
+      // Create a promise for this response and track it
+      const responsePromise = this.handleResponse(response);
+      this.pendingResponses.add(responsePromise);
 
-        // Capture font files
-        if (this.isFontFile(url, contentType)) {
-          const family = this.extractFontFamily(url);
-          this.resources.fonts.push({ url, family });
-        }
-
-        // Check for design token files
-        if (this.isDesignTokenFile(url) && contentType.includes('json')) {
-          try {
-            const content = await response.json();
-            this.resources.designTokens.push({ url, content });
-          } catch (error) {
-            // Skip if not valid JSON
-          }
-        }
-      } catch (error) {
-        // Skip any errors in response handling
-      }
+      // Remove from pending when complete
+      responsePromise.finally(() => {
+        this.pendingResponses.delete(responsePromise);
+      });
     });
+  }
 
-    // Return a promise that resolves after a short delay
-    // This allows time for resources to be captured
-    await new Promise(resolve => setTimeout(resolve, 1000));
+  /**
+   * Finish capture and wait for all pending responses
+   *
+   * @param maxWaitMs Maximum time to wait for pending responses (default: 5000ms)
+   */
+  async finishCapture(maxWaitMs: number = 5000): Promise<void> {
+    this.maxWaitTime = maxWaitMs;
+    this.isCapturing = false; // Stop accepting new responses
 
-    return this.resources;
+    // Wait for all pending responses with timeout
+    await this.waitForPendingResponses();
+  }
+
+  /**
+   * Handle a single response asynchronously
+   */
+  private async handleResponse(response: any): Promise<void> {
+    try {
+      const url = response.url();
+      const contentType = response.headers()['content-type'] || '';
+
+      // Capture CSS files
+      if (url.endsWith('.css') || contentType.includes('text/css')) {
+        try {
+          const content = await response.text();
+          this.resources.css.push({ url, content });
+        } catch (error) {
+          // Skip if we can't read the response (might be already consumed)
+        }
+      }
+
+      // Capture font files (no async needed, just metadata)
+      if (this.isFontFile(url, contentType)) {
+        const family = this.extractFontFamily(url);
+        this.resources.fonts.push({ url, family });
+      }
+
+      // Check for design token files
+      if (this.isDesignTokenFile(url) && contentType.includes('json')) {
+        try {
+          const content = await response.json();
+          this.resources.designTokens.push({ url, content });
+        } catch (error) {
+          // Skip if not valid JSON
+        }
+      }
+    } catch (error) {
+      // Skip any errors in response handling (e.g., response already finished)
+    }
+  }
+
+  /**
+   * Wait for all pending responses to complete, with timeout
+   */
+  private async waitForPendingResponses(): Promise<void> {
+    const startTime = Date.now();
+    const checkInterval = 100; // Check every 100ms
+
+    while (this.pendingResponses.size > 0) {
+      const elapsed = Date.now() - startTime;
+
+      // Timeout check
+      if (elapsed >= this.maxWaitTime) {
+        // Log warning but don't fail - some resources may still be pending
+        console.warn(`Network analyzer timeout after ${elapsed}ms with ${this.pendingResponses.size} pending responses`);
+        break;
+      }
+
+      // Wait a bit before checking again
+      await new Promise(resolve => setTimeout(resolve, checkInterval));
+
+      // Also try to flush any completed promises
+      await Promise.race([
+        Promise.allSettled(Array.from(this.pendingResponses)),
+        new Promise(resolve => setTimeout(resolve, checkInterval))
+      ]);
+    }
   }
 
   /**

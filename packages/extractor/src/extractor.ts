@@ -85,7 +85,7 @@ export class DesignSystemExtractor {
         viewport: this.options.viewport
       });
 
-      // Set up network analyzer before navigation
+      // Set up network analyzer BEFORE navigation (starts listeners)
       await this.networkAnalyzer.captureResources(page);
 
       // Navigate to URL with retry logic
@@ -110,6 +110,9 @@ export class DesignSystemExtractor {
       // Wait a bit for any lazy-loaded content
       await page.waitForTimeout(2000);
 
+      // Finish network capture (waits for pending responses)
+      await this.networkAnalyzer.finishCapture(3000); // 3s timeout for pending resources
+
       // Capture all sources in parallel
       logger.info('Capturing page data');
       const [screenshots, htmlStructure, styles] = await Promise.all([
@@ -124,7 +127,7 @@ export class DesignSystemExtractor {
         styles: styles.elements.length
       });
 
-      // Get network resources
+      // Get captured network resources
       const networkResources = this.networkAnalyzer.getResources();
 
       // Analyze screenshots with vision API
@@ -175,19 +178,36 @@ export class DesignSystemExtractor {
         { url, originalError: error instanceof Error ? error.message : String(error) }
       );
     } finally {
-      // Clean up resources
+      // Clean up resources - each operation isolated to prevent cascade failures
       logger.debug('Cleaning up resources');
-      try {
-        if (page) {
+
+      // Close page first (separate try-catch to ensure browser cleanup runs even if this fails)
+      if (page) {
+        try {
           await page.close();
+          logger.debug('Page closed successfully');
+        } catch (pageError) {
+          logger.warn('Failed to close page', {
+            error: pageError instanceof Error ? pageError.message : String(pageError)
+          });
+          // Continue to browser cleanup even if page close fails
         }
-        if (browser) {
-          await browser.close();
-        }
-        logger.debug('Cleanup complete');
-      } catch (cleanupError) {
-        logger.warn('Error during cleanup', { error: cleanupError });
       }
+
+      // Close browser (guaranteed to run even if page.close() threw)
+      if (browser) {
+        try {
+          await browser.close();
+          logger.debug('Browser closed successfully');
+        } catch (browserError) {
+          logger.error('Failed to close browser - possible memory leak', {
+            error: browserError instanceof Error ? browserError.message : String(browserError)
+          });
+          // Log as error since browser leak is critical
+        }
+      }
+
+      logger.debug('Cleanup complete');
     }
   }
 

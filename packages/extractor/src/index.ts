@@ -41,6 +41,9 @@ export { Logger, createLogger, logger } from './logger';
 // Retry utilities
 export { withRetry, BROWSER_RETRY_OPTIONS, API_RETRY_OPTIONS } from './retry';
 
+// Rate limiting
+export { RateLimiter } from './rate-limiter';
+
 // Types
 export type {
   ExtractorOptions,
@@ -66,3 +69,4 @@ export type {
 
 export type { ValidationResult, ExtractionLimits } from './validators';
 export type { RetryOptions } from './retry';
+export type { RateLimitOptions } from './rate-limiter';

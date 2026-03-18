@@ -17,6 +17,10 @@ export interface Config {
     maxRetries: number;
     retryDelay: number;
     timeout: number;
+    rateLimit: {
+      maxRequestsPerMinute: number;
+      maxCostPerSession: number;
+    };
   };
   limits: {
     maxPageSize: number;
@@ -41,7 +45,11 @@ export const DEFAULT_CONFIG: Config = {
   api: {
     maxRetries: 3,
     retryDelay: 1000,
-    timeout: 60000
+    timeout: 60000,
+    rateLimit: {
+      maxRequestsPerMinute: 50, // Anthropic rate limit is typically 50-100/min
+      maxCostPerSession: 5.0 // $5 max per extraction session
+    }
   },
   limits: {
     maxPageSize: 10 * 1024 * 1024, // 10MB
@@ -73,7 +81,11 @@ export function loadConfig(): Config {
     api: {
       maxRetries: parseInt(process.env.DSB_MAX_RETRIES || String(DEFAULT_CONFIG.api.maxRetries)),
       retryDelay: parseInt(process.env.DSB_RETRY_DELAY || String(DEFAULT_CONFIG.api.retryDelay)),
-      timeout: parseInt(process.env.DSB_API_TIMEOUT || String(DEFAULT_CONFIG.api.timeout))
+      timeout: parseInt(process.env.DSB_API_TIMEOUT || String(DEFAULT_CONFIG.api.timeout)),
+      rateLimit: {
+        maxRequestsPerMinute: parseInt(process.env.DSB_MAX_REQUESTS_PER_MINUTE || String(DEFAULT_CONFIG.api.rateLimit.maxRequestsPerMinute)),
+        maxCostPerSession: parseFloat(process.env.DSB_MAX_COST_PER_SESSION || String(DEFAULT_CONFIG.api.rateLimit.maxCostPerSession))
+      }
     },
     limits: {
       maxPageSize: parseInt(process.env.DSB_MAX_PAGE_SIZE || String(DEFAULT_CONFIG.limits.maxPageSize)),
