@@ -1,0 +1,56 @@
+{
+  "name": "design-system-builder",
+  "version": "0.1.0",
+  "description": "Extract design systems from any website using AI vision analysis. Free and open source with BYOK (Bring Your Own Key) model.",
+  "private": false,
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npm run build -w @dsb/providers && npm run build -w @dsb/core && npm run build -w @dsb/cli",
+    "build:watch": "npm run watch --workspaces --parallel",
+    "test": "npm run test --workspaces",
+    "lint": "eslint packages/*/src --ext .ts",
+    "clean": "rm -rf packages/*/dist",
+    "typecheck": "tsc --noEmit --workspaces"
+  },
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=9.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/yourusername/design-system-builder.git"
+  },
+  "bugs": {
+    "url": "https://github.com/yourusername/design-system-builder/issues"
+  },
+  "homepage": "https://github.com/yourusername/design-system-builder#readme",
+  "keywords": [
+    "design-system",
+    "design-tokens",
+    "design-extraction",
+    "ai",
+    "claude",
+    "anthropic",
+    "vertex-ai",
+    "vision-api",
+    "figma",
+    "tailwind",
+    "w3c-dtcg",
+    "web-scraping",
+    "screenshot-analysis",
+    "component-library",
+    "style-guide",
+    "byok"
+  ],
+  "author": "Your Name <your.email@example.com>",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@typescript-eslint/eslint-plugin": "^6.0.0",
+    "@typescript-eslint/parser": "^6.0.0",
+    "eslint": "^8.0.0",
+    "typescript": "^5.0.0"
+  }
+}
