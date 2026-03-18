@@ -20,12 +20,12 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/yourusername/design-system-builder.git"
+    "url": "https://github.com/resabh/design-system-builder.git"
   },
   "bugs": {
-    "url": "https://github.com/yourusername/design-system-builder/issues"
+    "url": "https://github.com/resabh/design-system-builder/issues"
   },
-  "homepage": "https://github.com/yourusername/design-system-builder#readme",
+  "homepage": "https://github.com/resabh/design-system-builder#readme",
   "keywords": [
     "design-system",
     "design-tokens",
@@ -44,7 +44,7 @@
     "style-guide",
     "byok"
   ],
-  "author": "Your Name <your.email@example.com>",
+  "author": "Rishabh Patel <rishabh@resabh.com>",
   "license": "MIT",
   "devDependencies": {
     "@types/node": "^20.0.0",
