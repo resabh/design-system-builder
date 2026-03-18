@@ -16,6 +16,7 @@
     "paths": {
       "@dsb/providers": ["packages/providers/src"],
       "@dsb/core": ["packages/core/src"],
+      "@dsb/extractor": ["packages/extractor/src"],
       "@dsb/cli": ["packages/cli/src"]
     }
   },

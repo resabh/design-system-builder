@@ -7,7 +7,7 @@
     "packages/*"
   ],
   "scripts": {
-    "build": "npm run build -w @dsb/providers && npm run build -w @dsb/core && npm run build -w @dsb/cli",
+    "build": "npm run build -w @dsb/providers && npm run build -w @dsb/core && npm run build -w @dsb/extractor && npm run build -w @dsb/cli",
     "build:watch": "npm run watch --workspaces --parallel",
     "test": "npm run test --workspaces",
     "lint": "eslint packages/*/src --ext .ts",

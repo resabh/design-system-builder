@@ -9,6 +9,7 @@
 import { Command } from 'commander';
 import chalk from 'chalk';
 import { configCommand, showConfig } from './commands/config';
+import { extractCommand } from './commands/extract';
 
 const program = new Command();
 
@@ -31,19 +32,14 @@ program
   .description('Show current configuration')
   .action(showConfig);
 
-// Extract command (placeholder for now)
+// Extract command
 program
   .command('extract <url>')
   .description('Extract design system from a website')
-  .option('-o, --output <dir>', 'Output directory')
-  .option('-p, --provider <provider>', 'Override default provider')
-  .action((url, options) => {
-    console.log(chalk.yellow('\n🚧 Extract command coming soon!'));
-    console.log(chalk.dim(`   Will extract design system from: ${url}`));
-    if (options.output) {
-      console.log(chalk.dim(`   Output to: ${options.output}`));
-    }
-  });
+  .option('-o, --output <file>', 'Output file path (default: ./design-system.json)')
+  .option('-p, --provider <provider>', 'Override default provider (anthropic, vertex-ai)')
+  .option('--capture-states', 'Capture component state variations (hover, focus)')
+  .action(extractCommand);
 
 // Parse command line arguments
 program.parse();
