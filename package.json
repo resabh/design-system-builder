@@ -44,7 +44,7 @@
     "style-guide",
     "byok"
   ],
-  "author": "Rishabh Patel <rishabh@resabh.com>",
+  "author": "Rishabh Patel <rp87704@gmail.com>",
   "license": "MIT",
   "devDependencies": {
     "@types/node": "^20.0.0",
