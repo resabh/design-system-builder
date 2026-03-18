@@ -255,6 +255,54 @@ npm test
 npm run watch
 ```
 
+### Testing
+
+The project includes comprehensive test suites:
+
+#### Integration Tests
+Test the complete extraction pipeline with mock providers:
+
+```bash
+# Run integration tests
+cd packages/extractor
+npm run test:integration
+```
+
+12 integration tests covering:
+- Design system extraction from live URLs
+- Error handling (invalid URLs, timeouts, dangerous protocols)
+- Resource cleanup and browser management
+- Configuration options (viewport, maxComponents, captureStates)
+- Cost tracking and token usage
+
+#### Load Tests
+Verify performance under concurrent load:
+
+```bash
+# Run load tests
+cd packages/extractor
+npm run test:load
+```
+
+Load tests verify:
+- **Concurrent extractions** - 5, 10, and 20 simultaneous requests
+- **Memory management** - No memory leaks during repeated extractions
+- **Failure recovery** - Graceful degradation under errors
+- **Performance SLAs** - Average < 10s, P95 < 15s (with mock provider)
+- **Rate limiting** - Proper enforcement across concurrent requests
+
+See `packages/extractor/tests/load/README.md` for detailed documentation.
+
+#### Performance Targets
+
+| Metric | Target (Mock) | Target (Real) |
+|--------|---------------|---------------|
+| Avg Extraction Time | < 10s | < 60s |
+| P95 Extraction Time | < 15s | < 120s |
+| 5 Concurrent | < 30s total | - |
+| 10 Concurrent | < 60s total | - |
+| Memory Growth | < 100MB/15 extractions | < 500MB/instance |
+
 ## 📄 License
 
 MIT

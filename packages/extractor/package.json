@@ -7,6 +7,9 @@
   "scripts": {
     "build": "tsc",
     "test": "jest",
+    "test:integration": "jest tests/integration/",
+    "test:load": "jest tests/load/ --testTimeout=180000",
+    "test:all": "jest --testTimeout=180000",
     "watch": "tsc --watch"
   },
   "dependencies": {
