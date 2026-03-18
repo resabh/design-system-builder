@@ -10,6 +10,12 @@ import { VisionAnalyzer } from './vision-analyzer';
 import { CodeInspector } from './code-inspector';
 import { NetworkAnalyzer } from './network-analyzer';
 import { DesignSystemBuilder } from './design-system-builder';
+import { validateURL, validateExtractorOptions, estimateCost, DEFAULT_LIMITS } from './validators';
+import { ExtractionError, BrowserTimeoutError } from './errors';
+import { createLogger } from './logger';
+import { withRetry, BROWSER_RETRY_OPTIONS } from './retry';
+
+const logger = createLogger('extractor');
 
 export class DesignSystemExtractor {
   private screenshotCapture: ScreenshotCapture;
@@ -32,6 +38,14 @@ export class DesignSystemExtractor {
       ...options
     };
 
+    // Validate options
+    const validation = validateExtractorOptions(this.options);
+    if (!validation.valid) {
+      throw new ExtractionError(validation.error!, 'INVALID_OPTIONS');
+    }
+
+    logger.debug('Initializing extractor with options', this.options);
+
     // Initialize components
     this.screenshotCapture = new ScreenshotCapture(this.options);
     this.visionAnalyzer = new VisionAnalyzer(this.provider);
@@ -44,14 +58,27 @@ export class DesignSystemExtractor {
    * Extract design system from a URL
    */
   async extract(url: string): Promise<DesignSystem> {
+    const startTime = Date.now();
+    logger.info('Starting design system extraction', { url });
+
+    // Validate URL BEFORE launching browser
+    logger.debug('Validating URL');
+    await validateURL(url, DEFAULT_LIMITS);
+
+    // Estimate cost
+    const estimatedCost = estimateCost(this.options);
+    logger.info('Estimated extraction cost', { cost: estimatedCost });
+
     let browser: Browser | null = null;
     let page: Page | null = null;
 
     try {
       // Launch browser
+      logger.debug('Launching browser');
       browser = await chromium.launch({
         headless: true
       });
+      logger.debug('Browser launched successfully');
 
       // Create page with viewport
       page = await browser.newPage({
@@ -61,26 +88,47 @@ export class DesignSystemExtractor {
       // Set up network analyzer before navigation
       await this.networkAnalyzer.captureResources(page);
 
-      // Navigate to URL
-      await page.goto(url, {
-        waitUntil: 'networkidle',
-        timeout: this.options.timeout
-      });
+      // Navigate to URL with retry logic
+      logger.info('Navigating to URL', { url });
+      await withRetry(
+        () => page!.goto(url, {
+          waitUntil: 'networkidle',
+          timeout: this.options.timeout
+        }),
+        {
+          ...BROWSER_RETRY_OPTIONS,
+          onRetry: (attempt, delay, error) => {
+            logger.warn(`Navigation failed, retrying (attempt ${attempt})`, {
+              delay,
+              error: error.message
+            });
+          }
+        }
+      );
+      logger.info('Page loaded successfully');
 
       // Wait a bit for any lazy-loaded content
       await page.waitForTimeout(2000);
 
       // Capture all sources in parallel
+      logger.info('Capturing page data');
       const [screenshots, htmlStructure, styles] = await Promise.all([
         this.screenshotCapture.capture(page),
         this.codeInspector.extractHTML(page),
         this.codeInspector.extractStyles(page)
       ]);
 
+      logger.debug('Data capture complete', {
+        screenshots: screenshots.length,
+        components: htmlStructure.components.length,
+        styles: styles.elements.length
+      });
+
       // Get network resources
       const networkResources = this.networkAnalyzer.getResources();
 
       // Analyze screenshots with vision API
+      logger.info('Analyzing with AI');
       const visionAnalysis = await this.visionAnalyzer.analyze(screenshots);
 
       // Aggregate all sources
@@ -92,18 +140,53 @@ export class DesignSystemExtractor {
       };
 
       // Build final design system
+      logger.info('Building final design system');
       const designSystem = await this.designSystemBuilder.build(allSources, url);
+
+      const duration = Date.now() - startTime;
+      logger.info('Extraction complete', {
+        duration,
+        tokensExtracted: Object.keys(designSystem.tokens.color).length +
+                         Object.keys(designSystem.tokens.typography).length +
+                         Object.keys(designSystem.tokens.spacing).length,
+        components: designSystem.components.length,
+        patterns: designSystem.patterns.length,
+        cost: designSystem.metadata.cost
+      });
 
       return designSystem;
     } catch (error) {
-      throw new Error(`Failed to extract design system: ${error instanceof Error ? error.message : String(error)}`);
-    } finally {
-      // Clean up
-      if (page) {
-        await page.close();
+      const duration = Date.now() - startTime;
+      logger.error('Extraction failed', {
+        url,
+        duration,
+        error
+      });
+
+      // Re-throw known errors
+      if (error instanceof ExtractionError) {
+        throw error;
       }
-      if (browser) {
-        await browser.close();
+
+      // Wrap unknown errors
+      throw new ExtractionError(
+        `Failed to extract design system: ${error instanceof Error ? error.message : String(error)}`,
+        'EXTRACTION_FAILED',
+        { url, originalError: error instanceof Error ? error.message : String(error) }
+      );
+    } finally {
+      // Clean up resources
+      logger.debug('Cleaning up resources');
+      try {
+        if (page) {
+          await page.close();
+        }
+        if (browser) {
+          await browser.close();
+        }
+        logger.debug('Cleanup complete');
+      } catch (cleanupError) {
+        logger.warn('Error during cleanup', { error: cleanupError });
       }
     }
   }

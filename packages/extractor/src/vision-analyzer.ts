@@ -4,6 +4,11 @@
 
 import type { LLMProvider } from '@dsb/providers';
 import type { Screenshot, VisionAnalysis } from './types';
+import { VisionAnalysisError, JSONParseError, InvalidResponseError } from './errors';
+import { createLogger } from './logger';
+import { withRetry, API_RETRY_OPTIONS } from './retry';
+
+const logger = createLogger('vision-analyzer');
 
 export class VisionAnalyzer {
   constructor(private provider: LLMProvider) {}
@@ -12,21 +17,58 @@ export class VisionAnalyzer {
    * Analyze screenshots to extract design system information
    */
   async analyze(screenshots: Screenshot[]): Promise<VisionAnalysis> {
+    logger.info('Starting vision analysis', {
+      totalScreenshots: screenshots.length,
+      types: screenshots.map(s => s.type)
+    });
+
     // Build comprehensive prompt
     const prompt = this.buildPrompt(screenshots);
 
     // Prepare images (limit to most important ones to manage costs)
     const images = this.selectImportantScreenshots(screenshots);
 
-    // Send to AI provider
-    const response = await this.provider.analyzeImage({
-      images: images.map(s => s.buffer),
-      prompt,
-      maxTokens: 4096
+    logger.info('Selected screenshots for analysis', {
+      selected: images.length,
+      total: screenshots.length
+    });
+
+    // Send to AI provider with retry logic
+    const response = await withRetry(
+      () => this.provider.analyzeImage({
+        images: images.map(s => s.buffer),
+        prompt,
+        maxTokens: 4096
+      }),
+      {
+        ...API_RETRY_OPTIONS,
+        onRetry: (attempt, delay, error) => {
+          logger.warn(`Vision API call failed, retrying (attempt ${attempt})`, {
+            delay,
+            error: error.message
+          });
+        }
+      }
+    );
+
+    logger.debug('Received AI response', {
+      contentLength: response.content.length,
+      inputTokens: response.usage.inputTokens,
+      outputTokens: response.usage.outputTokens
     });
 
     // Parse the JSON response
     const analysis = this.parseAnalysis(response.content);
+
+    logger.info('Vision analysis complete', {
+      tokensFound: {
+        colors: analysis.tokens.colors.length,
+        typography: analysis.tokens.typography.length,
+        spacing: analysis.tokens.spacing.length
+      },
+      components: analysis.components.length,
+      patterns: analysis.patterns.length
+    });
 
     return analysis;
   }
@@ -146,37 +188,64 @@ Be thorough and extract as much detail as possible. Only output valid JSON.`;
       const jsonMatch = content.match(/```json\s*([\s\S]*?)\s*```/);
       if (jsonMatch) {
         jsonContent = jsonMatch[1];
+        logger.debug('Extracted JSON from markdown code block');
       }
 
       // Parse the JSON
-      const parsed = JSON.parse(jsonContent);
+      let parsed: any;
+      try {
+        parsed = JSON.parse(jsonContent);
+      } catch (parseError) {
+        logger.error('Failed to parse AI response as JSON', {
+          contentPreview: content.substring(0, 200),
+          error: parseError
+        });
+        throw new JSONParseError(content, parseError as Error);
+      }
+
+      // Validate required structure
+      if (!parsed.tokens || typeof parsed.tokens !== 'object') {
+        logger.error('AI response missing required "tokens" field', { parsed });
+        throw new InvalidResponseError(
+          'AI response must include a "tokens" object',
+          parsed
+        );
+      }
 
       // Validate and structure the response
-      return {
+      const analysis: VisionAnalysis = {
         tokens: {
-          colors: parsed.tokens?.colors || [],
-          typography: parsed.tokens?.typography || [],
-          spacing: parsed.tokens?.spacing || [],
-          shadows: parsed.tokens?.shadows || [],
-          borderRadius: parsed.tokens?.borderRadius || []
+          colors: Array.isArray(parsed.tokens.colors) ? parsed.tokens.colors : [],
+          typography: Array.isArray(parsed.tokens.typography) ? parsed.tokens.typography : [],
+          spacing: Array.isArray(parsed.tokens.spacing) ? parsed.tokens.spacing : [],
+          shadows: Array.isArray(parsed.tokens.shadows) ? parsed.tokens.shadows : [],
+          borderRadius: Array.isArray(parsed.tokens.borderRadius) ? parsed.tokens.borderRadius : []
         },
-        components: parsed.components || [],
-        patterns: parsed.patterns || []
+        components: Array.isArray(parsed.components) ? parsed.components : [],
+        patterns: Array.isArray(parsed.patterns) ? parsed.patterns : []
       };
+
+      // Warn if no data extracted
+      const totalTokens = Object.values(analysis.tokens).reduce((sum, arr) => sum + arr.length, 0);
+      if (totalTokens === 0 && analysis.components.length === 0) {
+        logger.warn('Vision analysis returned no tokens or components');
+      }
+
+      return analysis;
     } catch (error) {
-      // If parsing fails, return empty structure
-      console.error('Failed to parse vision analysis:', error);
-      return {
-        tokens: {
-          colors: [],
-          typography: [],
-          spacing: [],
-          shadows: [],
-          borderRadius: []
-        },
-        components: [],
-        patterns: []
-      };
+      // Re-throw our custom errors
+      if (error instanceof VisionAnalysisError) {
+        throw error;
+      }
+
+      // Wrap unexpected errors
+      const err = error instanceof Error ? error : new Error(String(error));
+      logger.error('Unexpected error during vision analysis parsing', err);
+      throw new VisionAnalysisError(
+        'Failed to parse vision analysis',
+        err,
+        content
+      );
     }
   }
 }
