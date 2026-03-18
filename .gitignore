@@ -9,6 +9,10 @@ dist/
 *.tsbuildinfo
 .turbo/
 
+# Compiled files in src (should only be in dist)
+packages/*/src/**/*.js
+packages/*/src/**/*.d.ts
+
 # IDE
 .vscode/
 .idea/

@@ -80,12 +80,12 @@ ${JSON.stringify(sources.visionAnalysis, null, 2)}
 ${JSON.stringify(sources.styles, null, 2)}
 
 3. HTML STRUCTURE (component identification):
-${JSON.stringify(sources.htmlStructure.components, null, 2)}
+${JSON.stringify(sources.htmlStructure?.components || [], null, 2)}
 
 4. NETWORK RESOURCES (CSS files, fonts):
-- CSS Files: ${sources.networkResources.css.length} files
-- Fonts: ${sources.networkResources.fonts.map(f => f.family || f.url).join(', ')}
-- Design Token Files: ${sources.networkResources.designTokens.length} files
+- CSS Files: ${sources.networkResources?.css?.length || 0} files
+- Fonts: ${sources.networkResources?.fonts?.map(f => f.family || f.url).join(', ') || 'none'}
+- Design Token Files: ${sources.networkResources?.designTokens?.length || 0} files
 
 Your task is to create a unified design system by:
 

@@ -146,9 +146,9 @@ export class DesignSystemExtractor {
       const duration = Date.now() - startTime;
       logger.info('Extraction complete', {
         duration,
-        tokensExtracted: Object.keys(designSystem.tokens.color).length +
-                         Object.keys(designSystem.tokens.typography).length +
-                         Object.keys(designSystem.tokens.spacing).length,
+        tokensExtracted: Object.keys(designSystem.tokens.color || {}).length +
+                         Object.keys(designSystem.tokens.typography || {}).length +
+                         Object.keys(designSystem.tokens.spacing || {}).length,
         components: designSystem.components.length,
         patterns: designSystem.patterns.length,
         cost: designSystem.metadata.cost
