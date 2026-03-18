@@ -4,9 +4,16 @@
 
 import type { LLMProvider, TokenUsage } from '@dsb/providers';
 import type { AllSources, DesignSystem, DesignTokens, Component, Pattern } from './types';
+import { RateLimiter } from './rate-limiter';
+import { createLogger } from './logger';
+
+const logger = createLogger('design-system-builder');
 
 export class DesignSystemBuilder {
-  constructor(private provider: LLMProvider) {}
+  constructor(
+    private provider: LLMProvider,
+    private rateLimiter?: RateLimiter
+  ) {}
 
   /**
    * Build a unified design system from all sources
@@ -49,12 +56,28 @@ export class DesignSystemBuilder {
   }> {
     const prompt = this.buildSynthesisPrompt(sources);
 
+    // Check rate limit before API call
+    if (this.rateLimiter) {
+      await this.rateLimiter.checkAndWait();
+    }
+
     // Call AI provider (no images needed for synthesis)
     const response = await this.provider.analyzeImage({
       images: [],
       prompt,
       maxTokens: 8192
     });
+
+    // Track cost after successful API call
+    if (this.rateLimiter) {
+      const cost = this.provider.calculateCost(response.usage);
+      this.rateLimiter.addCost(cost);
+
+      logger.debug('Synthesis API cost tracked', {
+        requestCost: cost,
+        totalSessionCost: this.rateLimiter.getTotalCost()
+      });
+    }
 
     // Parse the response
     const parsed = this.parseSynthesisResponse(response.content);

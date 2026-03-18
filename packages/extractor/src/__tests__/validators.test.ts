@@ -2,9 +2,13 @@
  * Tests for validation utilities
  */
 
+import * as fs from 'fs';
+import * as path from 'path';
+import * as os from 'os';
 import {
   validateURLFormat,
   validateExtractorOptions,
+  validateOutputPath,
   estimateCost,
   DEFAULT_LIMITS
 } from '../validators';
@@ -53,6 +57,24 @@ describe('validateURLFormat', () => {
     const result = validateURLFormat('https://example.com:8080');
     expect(result.valid).toBe(true);
   });
+
+  it('should reject javascript: URLs (XSS vector)', () => {
+    const result = validateURLFormat('javascript:alert(1)');
+    expect(result.valid).toBe(false);
+    expect(result.error).toContain('not allowed');
+  });
+
+  it('should reject vbscript: URLs', () => {
+    const result = validateURLFormat('vbscript:msgbox(1)');
+    expect(result.valid).toBe(false);
+    expect(result.error).toContain('not allowed');
+  });
+
+  it('should reject about: URLs', () => {
+    const result = validateURLFormat('about:blank');
+    expect(result.valid).toBe(false);
+    expect(result.error).toContain('not allowed');
+  });
 });
 
 describe('validateExtractorOptions', () => {
@@ -100,6 +122,29 @@ describe('validateExtractorOptions', () => {
   it('should accept zero maxComponents', () => {
     const result = validateExtractorOptions({
       maxComponents: 0
+    });
+    expect(result.valid).toBe(true);
+  });
+
+  it('should reject viewport width exceeding 7680 (8K)', () => {
+    const result = validateExtractorOptions({
+      viewport: { width: 10000, height: 1080 }
+    });
+    expect(result.valid).toBe(false);
+    expect(result.error).toContain('cannot exceed 7680');
+  });
+
+  it('should reject viewport height exceeding 4320 (8K)', () => {
+    const result = validateExtractorOptions({
+      viewport: { width: 1920, height: 5000 }
+    });
+    expect(result.valid).toBe(false);
+    expect(result.error).toContain('cannot exceed 4320');
+  });
+
+  it('should accept maximum valid viewport (7680x4320)', () => {
+    const result = validateExtractorOptions({
+      viewport: { width: 7680, height: 4320 }
     });
     expect(result.valid).toBe(true);
   });
@@ -157,5 +202,109 @@ describe('DEFAULT_LIMITS', () => {
   it('should have reasonable maxCost', () => {
     expect(DEFAULT_LIMITS.maxCost).toBeGreaterThan(0);
     expect(DEFAULT_LIMITS.maxCost).toBeLessThan(10);
+  });
+});
+
+describe('validateOutputPath', () => {
+  let tempDir: string;
+
+  beforeEach(() => {
+    // Create temp directory for tests
+    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dsb-test-'));
+  });
+
+  afterEach(() => {
+    // Clean up temp directory
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  it('should accept valid output path', () => {
+    const outputPath = path.join(tempDir, 'output.json');
+    const result = validateOutputPath(outputPath);
+    expect(result.valid).toBe(true);
+  });
+
+  it('should reject path traversal with ..', () => {
+    const outputPath = '../../../etc/passwd.json';
+    const result = validateOutputPath(outputPath);
+    expect(result.valid).toBe(false);
+    // Should fail either due to parent directory or permissions
+    expect(result.valid).toBe(false);
+  });
+
+  it('should reject null byte injection', () => {
+    const outputPath = tempDir + '/output.json\0.txt';
+    const result = validateOutputPath(outputPath);
+    expect(result.valid).toBe(false);
+    expect(result.error).toContain('null byte');
+  });
+
+  it('should reject invalid file extension', () => {
+    const outputPath = path.join(tempDir, 'output.exe');
+    const result = validateOutputPath(outputPath);
+    expect(result.valid).toBe(false);
+    expect(result.error).toContain('not allowed');
+  });
+
+  it('should accept .json extension', () => {
+    const outputPath = path.join(tempDir, 'output.json');
+    const result = validateOutputPath(outputPath);
+    expect(result.valid).toBe(true);
+  });
+
+  it('should accept .txt extension', () => {
+    const outputPath = path.join(tempDir, 'output.txt');
+    const result = validateOutputPath(outputPath);
+    expect(result.valid).toBe(true);
+  });
+
+  it('should accept .md extension', () => {
+    const outputPath = path.join(tempDir, 'output.md');
+    const result = validateOutputPath(outputPath);
+    expect(result.valid).toBe(true);
+  });
+
+  it('should reject existing file without allowOverwrite', () => {
+    const outputPath = path.join(tempDir, 'existing.json');
+    fs.writeFileSync(outputPath, '{}');
+
+    const result = validateOutputPath(outputPath);
+    expect(result.valid).toBe(false);
+    expect(result.error).toContain('already exists');
+  });
+
+  it('should accept existing file with allowOverwrite', () => {
+    const outputPath = path.join(tempDir, 'existing.json');
+    fs.writeFileSync(outputPath, '{}');
+
+    const result = validateOutputPath(outputPath, { allowOverwrite: true });
+    expect(result.valid).toBe(true);
+  });
+
+  it('should create directory if it does not exist', () => {
+    const outputPath = path.join(tempDir, 'subdir', 'output.json');
+    const result = validateOutputPath(outputPath);
+
+    expect(result.valid).toBe(true);
+    expect(fs.existsSync(path.join(tempDir, 'subdir'))).toBe(true);
+  });
+
+  it('should enforce baseDirectory restriction', () => {
+    const outsidePath = '/tmp/outside.json';
+    const result = validateOutputPath(outsidePath, {
+      baseDirectory: tempDir
+    });
+
+    expect(result.valid).toBe(false);
+    expect(result.error).toContain('outside allowed directory');
+  });
+
+  it('should allow path within baseDirectory', () => {
+    const insidePath = path.join(tempDir, 'output.json');
+    const result = validateOutputPath(insidePath, {
+      baseDirectory: tempDir
+    });
+
+    expect(result.valid).toBe(true);
   });
 });

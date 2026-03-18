@@ -2,6 +2,8 @@
  * Input validation utilities for safe extraction
  */
 
+import * as path from 'path';
+import * as fs from 'fs';
 import { InvalidURLError, PageSizeLimitError, ValidationError } from './errors';
 
 export interface ValidationResult {
@@ -50,11 +52,12 @@ export function validateURLFormat(url: string): ValidationResult {
     };
   }
 
-  // 3. Not file:// or data: URLs (security risk)
-  if (parsed.protocol === 'file:' || parsed.protocol === 'data:') {
+  // 3. Block dangerous protocols (XSS, file access, data injection)
+  const dangerousProtocols = ['file:', 'data:', 'javascript:', 'vbscript:', 'about:'];
+  if (dangerousProtocols.includes(parsed.protocol)) {
     return {
       valid: false,
-      error: 'File and data URLs are not supported for security reasons.'
+      error: `Protocol '${parsed.protocol}' is blocked for security reasons.`
     };
   }
 
@@ -167,6 +170,19 @@ export function validateExtractorOptions(options: any): ValidationResult {
         error: 'viewport.height must be a positive number'
       };
     }
+    // Upper bounds to prevent DoS via huge viewport sizes
+    if (options.viewport.width > 7680) { // 8K width
+      return {
+        valid: false,
+        error: 'viewport.width cannot exceed 7680 pixels'
+      };
+    }
+    if (options.viewport.height > 4320) { // 8K height
+      return {
+        valid: false,
+        error: 'viewport.height cannot exceed 4320 pixels'
+      };
+    }
   }
 
   if (options.maxComponents !== undefined) {
@@ -250,4 +266,85 @@ export function estimateCost(options: {
   const stateCost = options.captureStates ? componentCount * 0.005 : 0;
 
   return baseCost + componentCost + stateCost;
+}
+
+/**
+ * Validate output file path for security and safety
+ */
+export function validateOutputPath(outputPath: string, options: {
+  allowOverwrite?: boolean;
+  baseDirectory?: string;
+} = {}): ValidationResult {
+  // 1. Resolve to absolute path
+  const absolutePath = path.resolve(outputPath);
+
+  // 2. Check for path traversal attacks
+  if (options.baseDirectory) {
+    const baseDir = path.resolve(options.baseDirectory);
+    if (!absolutePath.startsWith(baseDir)) {
+      return {
+        valid: false,
+        error: `Output path '${outputPath}' attempts to write outside allowed directory`
+      };
+    }
+  }
+
+  // 3. Check for null bytes (path traversal attempt)
+  if (outputPath.includes('\0')) {
+    return {
+      valid: false,
+      error: 'Output path contains invalid null byte'
+    };
+  }
+
+  // 4. Check for dangerous parent directory references
+  const normalized = path.normalize(outputPath);
+  if (normalized.includes('..')) {
+    return {
+      valid: false,
+      error: 'Output path cannot contain parent directory references (..)'
+    };
+  }
+
+  // 5. Validate file extension
+  const ext = path.extname(outputPath).toLowerCase();
+  const allowedExtensions = ['.json', '.txt', '.md'];
+  if (ext && !allowedExtensions.includes(ext)) {
+    return {
+      valid: false,
+      error: `Output file extension '${ext}' not allowed. Allowed: ${allowedExtensions.join(', ')}`
+    };
+  }
+
+  // 6. Check if file exists (overwrite protection)
+  if (!options.allowOverwrite && fs.existsSync(absolutePath)) {
+    return {
+      valid: false,
+      error: `Output file '${absolutePath}' already exists. Use --force to overwrite.`
+    };
+  }
+
+  // 7. Check if directory exists and is writable
+  const directory = path.dirname(absolutePath);
+  if (!fs.existsSync(directory)) {
+    try {
+      fs.mkdirSync(directory, { recursive: true });
+    } catch (error) {
+      return {
+        valid: false,
+        error: `Cannot create output directory '${directory}'`
+      };
+    }
+  }
+
+  try {
+    fs.accessSync(directory, fs.constants.W_OK);
+  } catch (error) {
+    return {
+      valid: false,
+      error: `Output directory '${directory}' is not writable`
+    };
+  }
+
+  return { valid: true };
 }

@@ -14,6 +14,8 @@ import { validateURL, validateExtractorOptions, estimateCost, DEFAULT_LIMITS } f
 import { ExtractionError, BrowserTimeoutError } from './errors';
 import { createLogger } from './logger';
 import { withRetry, BROWSER_RETRY_OPTIONS } from './retry';
+import { RateLimiter } from './rate-limiter';
+import { loadConfig } from './config';
 
 const logger = createLogger('extractor');
 
@@ -23,6 +25,7 @@ export class DesignSystemExtractor {
   private codeInspector: CodeInspector;
   private networkAnalyzer: NetworkAnalyzer;
   private designSystemBuilder: DesignSystemBuilder;
+  private rateLimiter: RateLimiter;
 
   constructor(
     private provider: LLMProvider,
@@ -46,12 +49,18 @@ export class DesignSystemExtractor {
 
     logger.debug('Initializing extractor with options', this.options);
 
+    // Load configuration for rate limiting
+    const config = loadConfig();
+
+    // Initialize rate limiter
+    this.rateLimiter = new RateLimiter(config.api.rateLimit);
+
     // Initialize components
     this.screenshotCapture = new ScreenshotCapture(this.options);
-    this.visionAnalyzer = new VisionAnalyzer(this.provider);
+    this.visionAnalyzer = new VisionAnalyzer(this.provider, this.rateLimiter);
     this.codeInspector = new CodeInspector();
     this.networkAnalyzer = new NetworkAnalyzer();
-    this.designSystemBuilder = new DesignSystemBuilder(this.provider);
+    this.designSystemBuilder = new DesignSystemBuilder(this.provider, this.rateLimiter);
   }
 
   /**

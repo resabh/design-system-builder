@@ -7,11 +7,15 @@ import type { Screenshot, VisionAnalysis } from './types';
 import { VisionAnalysisError, JSONParseError, InvalidResponseError } from './errors';
 import { createLogger } from './logger';
 import { withRetry, API_RETRY_OPTIONS } from './retry';
+import { RateLimiter } from './rate-limiter';
 
 const logger = createLogger('vision-analyzer');
 
 export class VisionAnalyzer {
-  constructor(private provider: LLMProvider) {}
+  constructor(
+    private provider: LLMProvider,
+    private rateLimiter?: RateLimiter
+  ) {}
 
   /**
    * Analyze screenshots to extract design system information
@@ -33,23 +37,42 @@ export class VisionAnalyzer {
       total: screenshots.length
     });
 
-    // Send to AI provider with retry logic
-    const response = await withRetry(
-      () => this.provider.analyzeImage({
-        images: images.map(s => s.buffer),
-        prompt,
-        maxTokens: 4096
-      }),
-      {
-        ...API_RETRY_OPTIONS,
-        onRetry: (attempt, delay, error) => {
-          logger.warn(`Vision API call failed, retrying (attempt ${attempt})`, {
-            delay,
-            error: error.message
-          });
+    // Check rate limit before API call
+    if (this.rateLimiter) {
+      await this.rateLimiter.checkAndWait();
+    }
+
+    // Send to AI provider with retry logic and timeout
+    const response = await this.withTimeout(
+      withRetry(
+        () => this.provider.analyzeImage({
+          images: images.map(s => s.buffer),
+          prompt,
+          maxTokens: 4096
+        }),
+        {
+          ...API_RETRY_OPTIONS,
+          onRetry: (attempt, delay, error) => {
+            logger.warn(`Vision API call failed, retrying (attempt ${attempt})`, {
+              delay,
+              error: error.message
+            });
+          }
         }
-      }
+      ),
+      60000 // 60 second timeout (configurable via DSB_API_TIMEOUT)
     );
+
+    // Track cost after successful API call
+    if (this.rateLimiter) {
+      const cost = this.provider.calculateCost(response.usage);
+      this.rateLimiter.addCost(cost);
+
+      logger.debug('API cost tracked', {
+        requestCost: cost,
+        totalSessionCost: this.rateLimiter.getTotalCost()
+      });
+    }
 
     logger.debug('Received AI response', {
       contentLength: response.content.length,
@@ -247,5 +270,18 @@ Be thorough and extract as much detail as possible. Only output valid JSON.`;
         content
       );
     }
+  }
+
+  /**
+   * Wrap a promise with a timeout
+   */
+  private async withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      setTimeout(() => {
+        reject(new Error(`API call timed out after ${timeoutMs}ms`));
+      }, timeoutMs);
+    });
+
+    return Promise.race([promise, timeoutPromise]);
   }
 }
