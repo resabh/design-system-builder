@@ -1,8 +1,8 @@
 module.exports = {
   preset: 'ts-jest',
   testEnvironment: 'node',
-  roots: ['<rootDir>/src'],
-  testMatch: ['**/__tests__/**/*.test.ts'],
+  roots: ['<rootDir>/src', '<rootDir>/tests'],
+  testMatch: ['**/__tests__/**/*.test.ts', '**/tests/**/*.test.ts'],
   transform: {
     '^.+\\.ts$': 'ts-jest'
   },
@@ -21,7 +21,9 @@ module.exports = {
     }
   },
   // Silence console output during tests
-  silent: true,
-  // Ensure tests don't hang
-  testTimeout: 10000
+  silent: false, // Enable output for integration tests
+  // Increase timeout for integration tests
+  testTimeout: 60000, // 60 seconds for integration tests
+  // Global setup/teardown
+  setupFilesAfterEnv: ['<rootDir>/tests/setup.ts']
 };
